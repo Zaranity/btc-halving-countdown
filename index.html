@@ -10,52 +10,77 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 100vh;
+      min-height: 100vh;
       margin: 0;
+      padding: 16px;
     }
     .container {
       text-align: center;
-      padding: 36px 48px;
+      padding: clamp(16px, 4vw, 36px) clamp(20px, 6vw, 48px);
       border: 1px solid #2a2a2a;
       border-radius: 16px;
       background: #141414;
       box-shadow: 0 0 40px rgba(240,165,0,0.08);
-      min-width: 320px;
+      width: 100%;
+      max-width: 420px;
+      display: inline-block;
     }
     .title {
-      font-size: 22px;
+      font-size: clamp(13px, 3vw, 20px);
       font-weight: 600;
-      margin-bottom: 20px;
+      margin-bottom: clamp(10px, 2vw, 20px);
       color: #f0a500;
       letter-spacing: 0.5px;
     }
     .countdown {
-      font-size: 52px;
+      display: flex;
+      justify-content: center;
+      gap: clamp(6px, 2vw, 14px);
+      margin-bottom: clamp(8px, 2vw, 16px);
+    }
+    .time-unit {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: clamp(6px, 2vw, 10px) clamp(8px, 2.5vw, 14px);
+      min-width: clamp(40px, 10vw, 60px);
+    }
+    .time-unit .val {
+      font-size: clamp(22px, 6vw, 40px);
       font-weight: bold;
       color: #ffffff;
-      letter-spacing: 2px;
-      margin-bottom: 16px;
+      line-height: 1;
+    }
+    .time-unit .lbl {
+      font-size: clamp(9px, 1.8vw, 12px);
+      color: #888;
+      margin-top: 3px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
     }
     .blocks {
-      font-size: 17px;
+      font-size: clamp(11px, 2.5vw, 15px);
       color: #aaaaaa;
-      margin-top: 8px;
+      margin-top: clamp(4px, 1vw, 8px);
     }
     .blocks span {
       color: #f0a500;
       font-weight: 600;
     }
     .halving-block {
-      margin-top: 14px;
-      font-size: 13px;
+      margin-top: clamp(6px, 1.5vw, 14px);
+      font-size: clamp(11px, 2vw, 13px);
       color: #555;
     }
     .halving-block span {
       color: #888;
     }
     .status {
-      margin-top: 12px;
-      font-size: 12px;
+      margin-top: clamp(6px, 1.5vw, 12px);
+      font-size: clamp(10px, 1.8vw, 12px);
       color: #444;
     }
     .dot {
@@ -76,7 +101,12 @@
 <body>
   <div class="container">
     <div class="title">⛏️ Bitcoin Halving Countdown</div>
-    <div class="countdown" id="countdown">Loading...</div>
+    <div class="countdown" id="countdown">
+      <div class="time-unit"><span class="val" id="cd-d">--</span><span class="lbl">days</span></div>
+      <div class="time-unit"><span class="val" id="cd-h">--</span><span class="lbl">hrs</span></div>
+      <div class="time-unit"><span class="val" id="cd-m">--</span><span class="lbl">min</span></div>
+      <div class="time-unit"><span class="val" id="cd-s">--</span><span class="lbl">sec</span></div>
+    </div>
     <div class="blocks" id="blocks"></div>
     <div class="halving-block">
       Next Halving Block: <span id="halvingBlock">—</span>
@@ -91,34 +121,27 @@
     let countdownTimer = null;
     let remainingSeconds = 0;
 
-    // Multiple API fallbacks in order
+    function fetchWithTimeout(url, timeout = 5000) {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), timeout);
+      return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(id));
+    }
+
+    // Try all APIs in parallel, return first successful result
     async function fetchCurrentBlock() {
-      const apis = [
-        async () => {
-          const r = await fetch('https://mempool.space/api/blocks/tip/height');
-          if (!r.ok) throw new Error('mempool.space failed');
-          return parseInt(await r.text(), 10);
-        },
-        async () => {
-          const r = await fetch('https://blockstream.info/api/blocks/tip/height');
-          if (!r.ok) throw new Error('blockstream failed');
-          return parseInt(await r.text(), 10);
-        },
-        async () => {
-          const r = await fetch('https://api.blockcypher.com/v1/btc/main');
-          if (!r.ok) throw new Error('blockcypher failed');
-          const json = await r.json();
-          return json.height;
-        }
+      const attempts = [
+        fetchWithTimeout('https://mempool.space/api/blocks/tip/height')
+          .then(r => { if (!r.ok) throw new Error(); return r.text(); })
+          .then(t => { const n = parseInt(t, 10); if (isNaN(n) || n <= 0) throw new Error(); return n; }),
+        fetchWithTimeout('https://blockstream.info/api/blocks/tip/height')
+          .then(r => { if (!r.ok) throw new Error(); return r.text(); })
+          .then(t => { const n = parseInt(t, 10); if (isNaN(n) || n <= 0) throw new Error(); return n; }),
+        fetchWithTimeout('https://api.blockcypher.com/v1/btc/main')
+          .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+          .then(j => { if (!j.height || j.height <= 0) throw new Error(); return j.height; })
       ];
 
-      for (const api of apis) {
-        try {
-          const block = await api();
-          if (!isNaN(block) && block > 0) return block;
-        } catch (_) {}
-      }
-      throw new Error('All APIs failed');
+      return Promise.any(attempts).catch(() => { throw new Error('All APIs failed'); });
     }
 
     function startCountdown() {
@@ -129,8 +152,10 @@
         const h = Math.floor((remainingSeconds % 86400) / 3600);
         const m = Math.floor((remainingSeconds % 3600) / 60);
         const s = remainingSeconds % 60;
-        document.getElementById('countdown').textContent =
-          `${d}d ${h}h ${m}m ${String(s).padStart(2, '0')}s`;
+        document.getElementById('cd-d').textContent = d;
+        document.getElementById('cd-h').textContent = String(h).padStart(2, '0');
+        document.getElementById('cd-m').textContent = String(m).padStart(2, '0');
+        document.getElementById('cd-s').textContent = String(s).padStart(2, '0');
       }, 1000);
     }
 
@@ -152,7 +177,10 @@
 
         startCountdown();
       } catch (e) {
-        document.getElementById('countdown').textContent = '—';
+        document.getElementById('cd-d').textContent = '--';
+        document.getElementById('cd-h').textContent = '--';
+        document.getElementById('cd-m').textContent = '--';
+        document.getElementById('cd-s').textContent = '--';
         document.getElementById('statusText').textContent = `Error: ${e.message}`;
       }
     }
