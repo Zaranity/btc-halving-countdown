@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #0d0d0d;
+      color: #f0a500;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .container {
+      text-align: center;
+      padding: 36px 48px;
+      border: 1px solid #2a2a2a;
+      border-radius: 16px;
+      background: #141414;
+      box-shadow: 0 0 40px rgba(240,165,0,0.08);
+      min-width: 320px;
+    }
+    .title {
+      font-size: 22px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: #f0a500;
+      letter-spacing: 0.5px;
+    }
+    .countdown {
+      font-size: 52px;
+      font-weight: bold;
+      color: #ffffff;
+      letter-spacing: 2px;
+      margin-bottom: 16px;
+    }
+    .blocks {
+      font-size: 17px;
+      color: #aaaaaa;
+      margin-top: 8px;
+    }
+    .blocks span {
+      color: #f0a500;
+      font-weight: 600;
+    }
+    .halving-block {
+      margin-top: 14px;
+      font-size: 13px;
+      color: #555;
+    }
+    .halving-block span {
+      color: #888;
+    }
+    .status {
+      margin-top: 12px;
+      font-size: 12px;
+      color: #444;
+    }
+    .dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #22c55e;
+      margin-right: 5px;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="title">⛏️ Bitcoin Halving Countdown</div>
+    <div class="countdown" id="countdown">Loading...</div>
+    <div class="blocks" id="blocks"></div>
+    <div class="halving-block">
+      Next Halving Block: <span id="halvingBlock">—</span>
+    </div>
+    <div class="status">
+      <span class="dot"></span><span id="statusText">Fetching data...</span>
+    </div>
+  </div>
+
+  <script>
+    const halvingInterval = 210000;
+    let countdownTimer = null;
+    let remainingSeconds = 0;
+
+    // Multiple API fallbacks in order
+    async function fetchCurrentBlock() {
+      const apis = [
+        async () => {
+          const r = await fetch('https://mempool.space/api/blocks/tip/height');
+          if (!r.ok) throw new Error('mempool.space failed');
+          return parseInt(await r.text(), 10);
+        },
+        async () => {
+          const r = await fetch('https://blockstream.info/api/blocks/tip/height');
+          if (!r.ok) throw new Error('blockstream failed');
+          return parseInt(await r.text(), 10);
+        },
+        async () => {
+          const r = await fetch('https://api.blockcypher.com/v1/btc/main');
+          if (!r.ok) throw new Error('blockcypher failed');
+          const json = await r.json();
+          return json.height;
+        }
+      ];
+
+      for (const api of apis) {
+        try {
+          const block = await api();
+          if (!isNaN(block) && block > 0) return block;
+        } catch (_) {}
+      }
+      throw new Error('All APIs failed');
+    }
+
+    function startCountdown() {
+      if (countdownTimer) clearInterval(countdownTimer);
+      countdownTimer = setInterval(() => {
+        if (remainingSeconds > 0) remainingSeconds--;
+        const d = Math.floor(remainingSeconds / 86400);
+        const h = Math.floor((remainingSeconds % 86400) / 3600);
+        const m = Math.floor((remainingSeconds % 3600) / 60);
+        const s = remainingSeconds % 60;
+        document.getElementById('countdown').textContent =
+          `${d}d ${h}h ${m}m ${String(s).padStart(2, '0')}s`;
+      }, 1000);
+    }
+
+    async function updateHalvingData() {
+      document.getElementById('statusText').textContent = 'Fetching...';
+      try {
+        const currentBlock = await fetchCurrentBlock();
+        const nextHalving = Math.ceil((currentBlock + 1) / halvingInterval) * halvingInterval;
+        const blocksRemaining = nextHalving - currentBlock;
+
+        remainingSeconds = blocksRemaining * 10 * 60;
+
+        document.getElementById('halvingBlock').textContent = nextHalving.toLocaleString();
+        document.getElementById('blocks').innerHTML =
+          `Current block: <span>${currentBlock.toLocaleString()}</span> &nbsp;|&nbsp; Remaining: <span>${blocksRemaining.toLocaleString()}</span>`;
+
+        const now = new Date().toLocaleTimeString();
+        document.getElementById('statusText').textContent = `Live · updated ${now}`;
+
+        startCountdown();
+      } catch (e) {
+        document.getElementById('countdown').textContent = '—';
+        document.getElementById('statusText').textContent = `Error: ${e.message}`;
+      }
+    }
+
+    updateHalvingData();
+    setInterval(updateHalvingData, 60000);
+  </script>
+</body>
+</html>
